@@ -1,0 +1,35 @@
+version: '3.9'
+services:
+  nginx-proxy-manager:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: always
+    container_name: nginx-proxy-manager
+    ports:
+      - '65510:81'
+      # HTTP ports supported by Cloudflare
+      - '80:80'
+      - '8080:8080'
+      - '8880:8880'
+      - '2052:2052'
+      - '2082:2082'
+      - '2086:2086'
+      - '2095:2095'
+      # HTTPS ports supported by Cloudflare
+      - '443:443'
+      - '2053:2053'
+      - '2083:2083'
+      - '2087:2087'
+      - '2096:2096'
+      - '8443:8443'
+    volumes:
+      - /nginx/data:/data
+      - /nginx/letsencrypt:/etc/letsencrypt
+
+    environment:
+      DISABLE_IPV6: 'true'
+    networks:
+      - www
+
+networks:
+  www:
+    name: www

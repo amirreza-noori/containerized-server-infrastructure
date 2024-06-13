@@ -1,0 +1,59 @@
+version: '3.9'
+services:
+  gitlab-web:
+    image: 'gitlab/gitlab-ce'
+    restart: unless-stopped
+    hostname: 'localhost'
+    container_name: gitlab-web
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://gitlab.u01.ir'
+        registry['enable'] = false
+        registry_nginx['enable'] = false
+        mattermost_nginx['enable'] = false
+        mattermost['gitlab_enable'] = false
+        gitlab_pages['enable'] = false
+        pages_nginx['enable'] = false
+        letsencrypt['enable'] = false
+        nginx['redirect_http_to_https'] = false
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        puma['enable'] = true
+        puma['worker_processes'] = 4
+        sidekiq['concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+        nginx['ssl_verify_client'] = "off"
+    volumes:
+      - '/gitlab/config:/etc/gitlab'
+      - '/gitlab/logs:/var/log/gitlab'
+      - '/gitlab/data:/var/opt/gitlab'
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+    networks:
+      - gitlab
+      - www
+  gitlab-runner:
+    image: gitlab/gitlab-runner:alpine
+    container_name: gitlab-runner
+    restart: always
+    depends_on:
+      - web
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - '/gitlab/gitlab-runner:/etc/gitlab-runner'
+      - '/gitlab/gitlab-runner-cache:/home/gitlab-runner'
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+    networks:
+      - gitlab
+networks:
+  gitlab:
+    name: gitlab
+  www:
+    name: www
+
+# grep 'Password:' /etc/gitlab/initial_root_password

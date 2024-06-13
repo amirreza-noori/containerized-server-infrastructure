@@ -1,0 +1,15 @@
+version: '3.9'
+services:
+    private-network:
+        container_name: private-network
+        build:
+            context: .
+        ports:
+            - 15555:5555
+        network_mode: bridge
+        restart: always
+        volumes:
+            - private-network:/vpnserver/
+
+volumes:
+    private-network:

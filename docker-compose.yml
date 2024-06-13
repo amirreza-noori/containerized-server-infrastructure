@@ -1,0 +1,10 @@
+version: '3.9'
+include:
+  - ./nginx-proxy-manager/docker-compose.yml
+  # - ./gitlab/docker-compose.yml
+  - ./jenkins/docker-compose.yml
+  - ./private-network/docker-compose.yml
+
+networks:
+  www:
+    name: www

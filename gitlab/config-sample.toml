@@ -1,0 +1,27 @@
+concurrent = 1
+check_interval = 0
+shutdown_timeout = 0
+
+[session_server]
+  session_timeout = 1800
+[[runners]]
+  name = "main-runner"
+  url = "<gitlab-server-url>"
+  id = <gitlab-runner-id>
+  token = "<gitlab-token>"
+  token_obtained_at = 2024-04-28T22:44:16Z
+  token_expires_at = 0001-01-01T00:00:00Z
+  executor = "docker"  
+  [runners.cache]
+    MaxUploadedArchiveSize = 0
+  [runners.docker]
+    tls_verify = true
+    image = "docker:dind"
+    privileged = true
+    disable_entrypoint_overwrite = false
+    oom_kill_disable = false
+    disable_cache = false
+    volumes = ["/etc/localtime:/etc/localtime:ro", "/var/run/docker.sock:/var/run/docker.sock", "/etc/docker/certs.d:/etc/docker/certs.d", "/cache:/cache"]
+    shm_size = 0
+    network_mtu = 0
+    helper_image = "gitlab/gitlab-runner-helper:alpine-latest-x86_64-bleeding"
