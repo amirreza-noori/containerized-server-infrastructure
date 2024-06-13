@@ -4,6 +4,7 @@ include:
   # - ./gitlab/docker-compose.yml
   - ./jenkins/docker-compose.yml
   - ./private-network/docker-compose.yml
+  - ./portainer/docker-compose.yml
 
 networks:
   www:
