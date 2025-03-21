@@ -1,0 +1,20 @@
+version: '3.8'
+services:
+    trojan:
+        image: trojangfw/trojan:latest
+        container_name: trojan
+        ports:
+            - '2222:443'
+        restart: unless-stopped
+        volumes:
+            - /nginx/letsencrypt/archive/npm-<Number>/fullchain1.pem:/config/cert.pem
+            - /nginx/letsencrypt/archive/npm-<Number>/privkey1.pem:/config/key.pem
+            - ./config.json:/config/config.json
+        environment:
+            - TZ=Asia/Tehran
+        networks:
+            - www
+
+networks:
+    www:
+        name: www
