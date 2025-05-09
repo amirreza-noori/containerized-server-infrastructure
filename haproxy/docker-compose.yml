@@ -1,0 +1,46 @@
+version: '3.9'
+services:
+  haproxy:
+    image: haproxy:2.8
+    container_name: haproxy
+    restart: always
+    ports:
+      - '65510:81'
+      # HTTP ports supported by Cloudflare
+      - '80:80'
+      - '8080:8080'
+      - '8880:8880'
+      - '2052:2052'
+      - '2082:2082'
+      - '2086:2086'
+      - '2095:2095'
+      # HTTPS ports supported by Cloudflare
+      - '443:443'
+      - '2053:2053'
+      - '2083:2083'
+      - '2087:2087'
+      - '2096:2096'
+      - '8443:8443'
+    volumes:
+      - /haproxy/data:/usr/local/etc/haproxy:ro
+      - /haproxy/letsencrypt:/etc/letsencrypt:ro
+    networks:
+      - www
+
+  certbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: certbot
+    volumes:
+      - /haproxy/data:/etc/haproxy/cfg:ro
+      - /haproxy/letsencrypt:/etc/letsencrypt:rw
+    networks:
+      - www
+
+networks:
+  www:
+    name: www
+
+# command to init CA: docker exec certbot certbot certonly --standalone  --debug-challenges -d <domain-name> --agree-tos --no-eff-email && ./generate_haproxy_certs.sh
+# docker exec certbot certbot certonly --standalone  --debug-challenges -d hollyan.ir --agree-tos --no-eff-email --non-interactive
