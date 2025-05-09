@@ -54,6 +54,7 @@ def copy_certificates_to_haproxy(domain):
         # کپی فایل‌ها
         if src_fullchain.exists():
             shutil.copy(src_fullchain, dst_fullchain)
+            os.chmod(dst_fullchain, 0o644)
             logger.info(f"Copied fullchain.pem to {dst_fullchain}")
         else:
             logger.error(f"Source fullchain.pem not found for {domain}")
@@ -61,6 +62,7 @@ def copy_certificates_to_haproxy(domain):
             
         if src_privkey.exists():
             shutil.copy(src_privkey, dst_privkey)
+            os.chmod(dst_privkey, 0o644)
             logger.info(f"Copied privkey.pem to {dst_privkey}")
         else:
             logger.error(f"Source privkey.pem not found for {domain}")
