@@ -3,7 +3,7 @@ services:
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
-    privileged: true
+    # privileged: true
     restart: always
     # ports:
     #   - '8000:8000'
@@ -16,7 +16,6 @@ services:
 
 volumes:
   portainer_data:
-
 
 networks:
   www:
