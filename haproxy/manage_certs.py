@@ -6,22 +6,22 @@ import logging
 from pathlib import Path
 import shutil
 
-# تنظیمات لاگ
+# Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# مسیرها و تنظیمات
+# Paths and settings
 CONFIG_DIR = os.getenv('CONFIG_DIR', '/etc/haproxy/cfg')
 CERT_DIR = os.getenv('CERT_DIR', '/etc/letsencrypt')
 WEBROOT_DIR = os.path.join(CERT_DIR, 'webroot')
 HAPROXY_CERT_DIR = os.path.join(CERT_DIR, 'haproxy')
 CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', 43200))  # 12 ساعت
 
-# الگوی regex برای استخراج دامنه‌ها
+# Regex pattern to extract domains
 DOMAIN_PATTERN = re.compile(r'hdr\(host\)\s+-i\s+(\S+)', re.IGNORECASE)
 
 def ensure_webroot():
-    """ایجاد پوشه webroot در صورت عدم وجود"""
+    """Ensure webroot directory exists"""
     webroot_path = Path(WEBROOT_DIR)
     try:
         webroot_path.mkdir(parents=True, exist_ok=True)
@@ -31,7 +31,7 @@ def ensure_webroot():
         raise
 
 def ensure_haproxy_cert_dir():
-    """ایجاد پوشه haproxy در صورت عدم وجود"""
+    """Ensure HAProxy cert directory exists"""
     haproxy_cert_path = Path(HAPROXY_CERT_DIR)
     try:
         haproxy_cert_path.mkdir(parents=True, exist_ok=True)
@@ -40,8 +40,35 @@ def ensure_haproxy_cert_dir():
         logger.error(f"Failed to create haproxy cert directory {HAPROXY_CERT_DIR}: {e}")
         raise
 
+def generate_dummy_certificate():
+    """Generate a self-signed dummy certificate in HAPROXY_CERT_DIR"""
+    try:
+        ensure_haproxy_cert_dir()
+        
+        dst_fullchain = Path(HAPROXY_CERT_DIR) / "dummy.pem"
+        dst_privkey = Path(HAPROXY_CERT_DIR) / "dummy.pem.key"
+        
+        if not dst_fullchain.exists():
+            cmd = [
+                'openssl', 'req', '-x509', '-nodes', '-days', '365', '-newkey', 'rsa:2048',
+                '-keyout', str(dst_privkey),
+                '-out', str(dst_fullchain),
+                '-subj', '/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=localhost'
+            ]
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            os.chmod(dst_fullchain, 0o644)
+            os.chmod(dst_privkey, 0o644)
+            logger.info(f"Generated dummy certificate at {dst_fullchain} and key at {dst_privkey}")
+        else:
+            logger.info(f"Dummy certificate already exists at {dst_fullchain}")
+            
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to generate dummy certificate: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Failed to generate dummy certificate: {e}")
+
 def copy_certificates_to_haproxy(domain):
-    """کپی و تغییر نام فایل‌های گواهینامه به پوشه haproxy"""
+    """Combine fullchain and privkey into a single PEM file for HAProxy"""
     try:
         ensure_haproxy_cert_dir()
         
@@ -72,7 +99,7 @@ def copy_certificates_to_haproxy(domain):
         logger.error(f"Failed to copy certificates for {domain}: {e}")
 
 def get_domains_from_configs():
-    """استخراج دامنه‌ها از فایل‌های .cfg"""
+    """Extract domains from .cfg files"""
     domains = set()
     config_path = Path(CONFIG_DIR)
     
@@ -93,19 +120,19 @@ def get_domains_from_configs():
     return domains
 
 def ensure_certificate(domain):
-    """دریافت یا تمدید گواهینامه برای دامنه"""
+    """Obtain or renew certificate for a domain"""
     cert_path = Path(CERT_DIR) / 'live' / domain / 'fullchain.pem'
     
-    # بررسی وجود گواهینامه
+    # Check if certificate exists
     if cert_path.exists():
         logger.info(f"Certificate for {domain} already exists")
-        copy_certificates_to_haproxy(domain)  # کپی گواهینامه‌های موجود
+        copy_certificates_to_haproxy(domain)  # Copy existing certificates
         return
     
-    # اطمینان از وجود پوشه webroot
+    # Ensure webroot exists
     ensure_webroot()
     
-    # اجرای certbot برای دریافت گواهینامه بدون ایمیل
+    # Run Certbot to obtain certificate without email
     cmd = [
         'certbot', 'certonly', '--non-interactive', '--agree-tos',
         '--register-unsafely-without-email',
@@ -116,18 +143,18 @@ def ensure_certificate(domain):
         logger.info(f"Requesting certificate for {domain}")
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         logger.info(f"Certificate for {domain} obtained successfully")
-        copy_certificates_to_haproxy(domain)  # کپی گواهینامه‌های جدید
+        copy_certificates_to_haproxy(domain)   # Copy existing certificates
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to obtain certificate for {domain}: {e.stderr}")
 
 def renew_certificates():
-    """تمدید گواهینامه‌های در حال انقضا"""
+    """Renew certificates nearing expiration"""
     try:
         logger.info("Checking for certificate renewals")
         subprocess.run(['certbot', 'renew', '--non-interactive', '--webroot', '-w', WEBROOT_DIR], check=True, capture_output=True, text=True)
         logger.info("Certificate renewal check completed")
         
-        # کپی گواهینامه‌های تمدیدشده برای همه دامنه‌ها
+        # Combine renewed certificates for all domains
         domains = get_domains_from_configs()
         for domain in domains:
             cert_path = Path(CERT_DIR) / 'live' / domain / 'fullchain.pem'
@@ -138,23 +165,26 @@ def renew_certificates():
         logger.error(f"Failed to renew certificates: {e.stderr}")
 
 def main():
-    """حلقه اصلی برای بررسی فایل‌ها و گواهینامه‌ها"""
+    """Main loop to check files and certificates"""
+    # Generate dummy certificate on startup
+    generate_dummy_certificate()
+    
     while True:
         try:
-            # استخراج دامنه‌ها
+            # Extract domains
             domains = get_domains_from_configs()
             
-            # دریافت گواهینامه برای دام  دامنه‌های جدید
+            # Obtain certificates for new domains
             for domain in domains:
                 ensure_certificate(domain)
             
-            # بررسی تمدید گواهینامه‌ها
+            # Check for certificate renewals
             renew_certificates()
             
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
         
-        # انتظار تا بررسی بعدی
+        # Wait until next check
         logger.info(f"Sleeping for {CHECK_INTERVAL} seconds")
         time.sleep(CHECK_INTERVAL)
 
