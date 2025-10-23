@@ -40,6 +40,7 @@ def ensure_haproxy_cert_dir():
         logger.error(f"Failed to create haproxy cert directory {HAPROXY_CERT_DIR}: {e}")
         raise
 
+
 def generate_dummy_certificate():
     """Generate a self-signed dummy certificate in HAPROXY_CERT_DIR"""
     try:
@@ -75,25 +76,45 @@ def copy_certificates_to_haproxy(domain):
         # مسیر فایل‌های گواهینامه
         src_fullchain = Path(CERT_DIR) / 'live' / domain / 'fullchain.pem'
         src_privkey = Path(CERT_DIR) / 'live' / domain / 'privkey.pem'
-        dst_fullchain = Path(HAPROXY_CERT_DIR) / f"{domain}.pem"
-        dst_privkey = Path(HAPROXY_CERT_DIR) / f"{domain}.pem.key"
+        dst_combined = Path(HAPROXY_CERT_DIR) / f"{domain}.pem"
         
-        # کپی فایل‌ها
-        if src_fullchain.exists():
-            shutil.copy(src_fullchain, dst_fullchain)
-            os.chmod(dst_fullchain, 0o644)
-            logger.info(f"Copied fullchain.pem to {dst_fullchain}")
-        else:
+        # بررسی وجود فایل‌های منبع
+        if not src_fullchain.exists():
             logger.error(f"Source fullchain.pem not found for {domain}")
             return
             
-        if src_privkey.exists():
-            shutil.copy(src_privkey, dst_privkey)
-            os.chmod(dst_privkey, 0o644)
-            logger.info(f"Copied privkey.pem to {dst_privkey}")
-        else:
+        if not src_privkey.exists():
             logger.error(f"Source privkey.pem not found for {domain}")
             return
+        
+        # بررسی زمان تغییر فایل‌ها برای تشخیص به‌روزرسانی
+        src_fullchain_mtime = src_fullchain.stat().st_mtime
+        src_privkey_mtime = src_privkey.stat().st_mtime
+        
+        # اگر فایل مقصد وجود دارد، زمان تغییر آن را بررسی کن
+        should_update = True
+        if dst_combined.exists():
+            dst_mtime = dst_combined.stat().st_mtime
+            # اگر فایل‌های منبع جدیدتر از فایل مقصد باشند، به‌روزرسانی کن
+            if src_fullchain_mtime <= dst_mtime and src_privkey_mtime <= dst_mtime:
+                should_update = False
+                logger.info(f"Certificate for {domain} is up to date, skipping update")
+        
+        if should_update:
+            # ترکیب فایل‌های fullchain و privkey در یک فایل برای HAProxy
+            with open(dst_combined, 'w') as dst_file:
+                # نوشتن fullchain
+                with open(src_fullchain, 'r') as src_file:
+                    dst_file.write(src_file.read())
+                
+                # نوشتن privkey
+                with open(src_privkey, 'r') as src_file:
+                    dst_file.write(src_file.read())
+            
+            os.chmod(dst_combined, 0o644)
+            logger.info(f"Updated combined certificate for {domain} at {dst_combined}")
+        else:
+            logger.info(f"Certificate for {domain} is already up to date")
             
     except Exception as e:
         logger.error(f"Failed to copy certificates for {domain}: {e}")
@@ -151,18 +172,38 @@ def renew_certificates():
     """Renew certificates nearing expiration"""
     try:
         logger.info("Checking for certificate renewals")
-        subprocess.run(['certbot', 'renew', '--non-interactive', '--webroot', '-w', WEBROOT_DIR], check=True, capture_output=True, text=True)
-        logger.info("Certificate renewal check completed")
+        result = subprocess.run(['certbot', 'renew', '--non-interactive', '--webroot', '-w', WEBROOT_DIR], 
+                              capture_output=True, text=True)
         
-        # Combine renewed certificates for all domains
-        domains = get_domains_from_configs()
-        for domain in domains:
-            cert_path = Path(CERT_DIR) / 'live' / domain / 'fullchain.pem'
-            if cert_path.exists():
-                copy_certificates_to_haproxy(domain)
+        if result.returncode == 0:
+            logger.info("Certificate renewal check completed")
+            # اگر گواهی‌ها تمدید شدند، فایل‌ها را به‌روزرسانی کن
+            if "renewed" in result.stdout.lower() or "renewed" in result.stderr.lower():
+                logger.info("Some certificates were renewed, updating HAProxy certificates")
+                # کمی صبر کن تا فایل‌ها کاملاً نوشته شوند
+                time.sleep(2)
+                
+                # به‌روزرسانی گواهی‌ها برای همه دامنه‌ها
+                domains = get_domains_from_configs()
+                for domain in domains:
+                    cert_path = Path(CERT_DIR) / 'live' / domain / 'fullchain.pem'
+                    if cert_path.exists():
+                        copy_certificates_to_haproxy(domain)
+            else:
+                logger.info("No certificates needed renewal")
+        else:
+            logger.warning(f"Certificate renewal check completed with warnings: {result.stderr}")
+            # حتی در صورت هشدار، گواهی‌ها را بررسی کن
+            domains = get_domains_from_configs()
+            for domain in domains:
+                cert_path = Path(CERT_DIR) / 'live' / domain / 'fullchain.pem'
+                if cert_path.exists():
+                    copy_certificates_to_haproxy(domain)
                 
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to renew certificates: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Unexpected error during certificate renewal: {e}")
 
 def main():
     """Main loop to check files and certificates"""
