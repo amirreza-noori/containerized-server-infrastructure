@@ -166,20 +166,35 @@ def get_domains_from_configs():
     return domains
 
 
-def ensure_certificate(domain):
-    """Obtain or renew certificate for a domain"""
-    cert_path = Path(CERT_DIR) / "live" / domain / "fullchain.pem"
+def get_certificate_domains(domain):
+    """
+    Return list of domains for one certificate.
+    For apex/root domains (e.g. sknc.ir, example.com) add domain + www.
+    For subdomains (e.g. port.sknc.ir) only the subdomain — no www (www.port.sknc.ir usually not used).
+    Certificate will be stored under the first domain in the list.
+    """
+    bare = domain.strip().lower()
+    if bare.startswith("www."):
+        bare = bare[4:]
+    # فقط برای دامنهٔ اصلی (دو بخش: name.tld) گواهی دامنه + www؛ برای زیردامنه فقط خودش
+    parts = bare.split(".")
+    if len(parts) == 2:
+        return [bare, f"www.{bare}"]
+    return [bare]
 
-    # Check if certificate exists
-    if cert_path.exists():
-        logger.info(f"Certificate for {domain} already exists")
-        copy_certificates_to_haproxy(domain)  # Copy existing certificates
-        return
+
+def ensure_certificate(domain):
+    """Obtain or renew certificate for a domain (and www subdomain)"""
+    cert_domains = get_certificate_domains(domain)
+    # مسیر گواهی همیشه با نام دامنهٔ اصلی (بدون www) ذخیره می‌شود
+    cert_dir_name = cert_domains[0]
+    cert_path = Path(CERT_DIR) / "live" / cert_dir_name / "fullchain.pem"
 
     # Ensure webroot exists
     ensure_webroot()
 
-    # Run Certbot to obtain certificate without email
+    # گواهی موجود را با --expand به‌روز کن تا www هم اضافه شود؛ گواهی جدید بدون --expand
+    cert_exists = cert_path.exists()
     cmd = [
         "certbot",
         "certonly",
@@ -189,17 +204,24 @@ def ensure_certificate(domain):
         "--webroot",
         "-w",
         WEBROOT_DIR,
-        "-d",
-        domain,
     ]
+    if cert_exists:
+        cmd.append("--expand")
+    for d in cert_domains:
+        cmd.extend(["-d", d])
 
     try:
-        logger.info(f"Requesting certificate for {domain}")
+        logger.info(f"Requesting certificate for {', '.join(cert_domains)}")
         subprocess.run(cmd, check=True, capture_output=True, text=True)
-        logger.info(f"Certificate for {domain} obtained successfully")
-        copy_certificates_to_haproxy(domain)  # Copy existing certificates
+        logger.info(f"Certificate for {', '.join(cert_domains)} obtained successfully")
+        copy_certificates_to_haproxy(cert_dir_name)
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to obtain certificate for {domain}: {e.stderr}")
+        # اگر گواهی از قبل وجود داشت و فقط تمدید نبود، فقط کپی کن
+        if cert_exists and e.returncode != 0:
+            logger.warning(f"Certbot expand failed (e.g. rate limit): {e.stderr}")
+            copy_certificates_to_haproxy(cert_dir_name)
+        else:
+            logger.error(f"Failed to obtain certificate for {cert_domains}: {e.stderr}")
 
 
 def renew_certificates():
@@ -222,12 +244,17 @@ def renew_certificates():
                 # کمی صبر کن تا فایل‌ها کاملاً نوشته شوند
                 time.sleep(2)
 
-                # به‌روزرسانی گواهی‌ها برای همه دامنه‌ها
+                # به‌روزرسانی گواهی‌ها برای همه دامنه‌ها (هر گواهی با نام دامنهٔ اصلی ذخیره می‌شود)
                 domains = get_domains_from_configs()
+                seen_cert_dirs = set()
                 for domain in domains:
-                    cert_path = Path(CERT_DIR) / "live" / domain / "fullchain.pem"
+                    cert_dir_name = get_certificate_domains(domain)[0]
+                    if cert_dir_name in seen_cert_dirs:
+                        continue
+                    seen_cert_dirs.add(cert_dir_name)
+                    cert_path = Path(CERT_DIR) / "live" / cert_dir_name / "fullchain.pem"
                     if cert_path.exists():
-                        copy_certificates_to_haproxy(domain)
+                        copy_certificates_to_haproxy(cert_dir_name)
             else:
                 logger.info("No certificates needed renewal")
         else:
@@ -236,10 +263,15 @@ def renew_certificates():
             )
             # حتی در صورت هشدار، گواهی‌ها را بررسی کن
             domains = get_domains_from_configs()
+            seen_cert_dirs = set()
             for domain in domains:
-                cert_path = Path(CERT_DIR) / "live" / domain / "fullchain.pem"
+                cert_dir_name = get_certificate_domains(domain)[0]
+                if cert_dir_name in seen_cert_dirs:
+                    continue
+                seen_cert_dirs.add(cert_dir_name)
+                cert_path = Path(CERT_DIR) / "live" / cert_dir_name / "fullchain.pem"
                 if cert_path.exists():
-                    copy_certificates_to_haproxy(domain)
+                    copy_certificates_to_haproxy(cert_dir_name)
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to renew certificates: {e.stderr}")
